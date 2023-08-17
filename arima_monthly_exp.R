@@ -82,3 +82,5 @@ pdf('arima_forecast.pdf')
 plot(my_forecast,main="ARIMA Monthly")
 dev.off()
 
+df[,diff_perc:=round(100*(predicted-observed)/observed,1)]
+fwrite(df,file=paste0('df_',today(),'.csv'))
