@@ -15,10 +15,12 @@ library(bayesplot)
 library(bayestestR)
 library(ggeffects)
 library(BayesPostEst)
+library(bayesforecast)
 
 rm(list=ls())
 
 ## read in data
+setwd('~/Projects/arima_stuff')
 exp <- fread('MonthlyCGExp_7252023.csv')
 proposals <- fread('Proposal_Details.csv')
 
@@ -71,11 +73,25 @@ proposals <- clean_names(proposals)
 proposals[,sbmt_year:=year(proposal_submission_date)]
 proposals[,sbmt_month:=month(proposal_submission_date,label=TRUE)]
 pre_merge_proposals <- proposals[,length(proposal_number),by=c('sbmt_year','sbmt_month')]
+
+
+# Assuming that the effect of proposals will be realized 18-24 months out try adjusting 
+# the submission date outwards,
+# proposals[,adj_sbmt_year1:=sbmt_year+1]
+# proposals[,adj_sbmt_year2:=sbmt_year+2]
+
+# merge expenditures and proposals
 merged <- merge(pre_merge_exp,pre_merge_proposals,by.x=c('sfy_year','cal_monthd'),by.y=c('sbmt_year','sbmt_month'))
   
 # model building BRM
 bm1 <- stan_glm(imputed_diff2 ~ sfy_year + cal_monthd, data=merged)   
 bm2 <- stan_glm(imputed_diff2 ~ sfy_year + cal_monthd + V1, data=merged) 
+
+pp_check(bm1,"dens_overlay")
+pp_check(bm2,"dens_overlay")
+
+p_direction(bm1)
+p_direction(bm2)
 
 # model building ARIMA
 # training set sfy 2019-2022

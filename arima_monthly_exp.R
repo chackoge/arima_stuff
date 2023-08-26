@@ -84,3 +84,29 @@ dev.off()
 
 df[,diff_perc:=round(100*(predicted-observed)/observed,1)]
 fwrite(df,file=paste0('df_',today(),'.csv'))
+
+## Proposal Data
+proposals <- fread('Proposal_Details.csv')
+proposals <- clean_names(proposals)
+proposals[,sbmt_year:=year(proposal_submission_date)]
+proposals[,sbmt_month:=month(proposal_submission_date,label=TRUE)]
+proposals[total_requested_dollar <= 300000,budget_type:= 't1']
+proposals[total_requested_dollar > 300000,budget_type:= 't2']
+
+summ_proposals <- proposals[,.N,by=c('sfy','sbmt_year','sbmt_month','budget_type')][order(sbmt_year,sbmt_month)]
+wide_proposal_counts <- dcast(summ_proposals,sbmt_year + sbmt_month ~ budget_type, value.var="N")
+
+## Expenditure data
+x <- fread("MonthlyCGExp_7252023.csv")
+x <- clean_names(x)
+z <- x[, sum(exp_ytd), c("cg_year", "cg_quarter", "cg_snapshot_dt")]
+z <- z[order(cg_year, cg_quarter, cg_snapshot_dt)]
+z[, `:=`(lag, shift(V1, fill = first(V1))), by = "cg_year"]
+z[, `:=`(diff, V1 - lag)]
+z <- cbind(z[order(cg_year, cg_quarter, cg_snapshot_dt)], rep(month, 5))
+# remove extra row added by recycling due to extra month
+# z <- z[-nrow(z)] # not needed in July2023. Need better strategy though
+
+# set index
+keycols <- c("cg_year", "cg_quarter", "cg_snapshot_dt")
+setkeyv(z, cols = keycols)
