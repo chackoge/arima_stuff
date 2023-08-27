@@ -30,13 +30,17 @@ exp[,cal_year:=year(cg_snapshot_dt)]
 exp[,cal_monthn:=month(cg_snapshot_dt)]
 exp[,cal_monthd:=month(cg_snapshot_dt,label=TRUE)]
 
-exp <- exp[,sum(exp_ytd),by=c('cg_year','cg_quarter','cg_snapshot_dt','cal_monthn','cal_monthd')]
+exp <- exp[,sum(exp_ytd),by=c('cg_year','cg_quarter','cg_snapshot_dt','cal_year','cal_monthn','cal_monthd')]
 setkeyv(exp,cols=c('cg_year','cg_quarter','cg_snapshot_dt'))
 sfy_monthn <- c(1,2,3,4,5,6,7,8,9,10,11,12)
 exp<- cbind(exp,rep(sfy_monthn,5))
+colnames(exp)[7] <- 'month_exp'
+colnames(exp)[8] <- 'sfy_month'
 
-exp[,lag:=shift(V1,fill=first(V1)),by=cg_year]
-exp[,diff:=V1-lag]
+
+exp[,lag:=shift(month_exp,fill=first(month_exp)),by=cg_year]
+exp[,lag:=shift(month_exp,fill=first(month_exp)),by=cg_year]
+exp[,diff:=month_exp-lag]
 
 # Impute values for July of each SFY
 impute <- exp[diff!=0,.(min(diff),median(diff),max(diff)),by=cg_year]
@@ -66,7 +70,7 @@ exp[is.na(imputed_diff3), `:=`(imputed_diff3, diff)]
 keycols=c('cg_year','cg_quarter','cg_snapshot_dt')
 setkeyv(exp,cols=keycols)
 
-pre_merge_exp <- exp[,.(sfy_year=cg_year,cal_monthd,imputed_diff2)]
+pre_merge_exp <- exp[,.(sfy_year=cg_year,cal_year,cal_monthd,imputed_diff2)]
 
 ## proposal data
 proposals <- clean_names(proposals)
@@ -75,17 +79,14 @@ proposals[,sbmt_month:=month(proposal_submission_date,label=TRUE)]
 pre_merge_proposals <- proposals[,length(proposal_number),by=c('sbmt_year','sbmt_month')]
 
 
-# Assuming that the effect of proposals will be realized 18-24 months out try adjusting 
-# the submission date outwards,
-# proposals[,adj_sbmt_year1:=sbmt_year+1]
-# proposals[,adj_sbmt_year2:=sbmt_year+2]
-
 # merge expenditures and proposals
-merged <- merge(pre_merge_exp,pre_merge_proposals,by.x=c('sfy_year','cal_monthd'),by.y=c('sbmt_year','sbmt_month'))
-  
+merged <- merge(pre_merge_exp,pre_merge_proposals,by.x=c('cal_year','cal_monthd'),by.y=c('sbmt_year','sbmt_month'))
+merged$cal_monthd <- factor(merged$cal_monthd, levels=c('Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun'))
+colnames(merged)[5] <- 'prop_count'
+
 # model building BRM
 bm1 <- stan_glm(imputed_diff2 ~ sfy_year + cal_monthd, data=merged)   
-bm2 <- stan_glm(imputed_diff2 ~ sfy_year + cal_monthd + V1, data=merged) 
+bm2 <- stan_glm(imputed_diff2 ~ sfy_year + cal_monthd + prop_count, data=merged) 
 
 pp_check(bm1,"dens_overlay")
 pp_check(bm2,"dens_overlay")
@@ -93,7 +94,24 @@ pp_check(bm2,"dens_overlay")
 p_direction(bm1)
 p_direction(bm2)
 
-# model building ARIMA
+#### 
+# build test set sfy 2023
+
+test <- merged[sfy_year==2023]
+df <- cbind(test[,.(cal_monthd,imputed_diff2)],
+            exp_mdl=apply(posterior_predict(bm1,merged[sfy_year==2023]),2,median),
+            exp_prop_mdl=apply(posterior_predict(bm2,merged[sfy_year==2023]),2,median))
+
+m_df <- reshape2::melt(df,id='cal_monthd')
+ggplot(m_df,aes(x=cal_monthd,y=value,group=variable)) + geom_point(aes(color=variable)) + 
+  geom_line(aes(color=variable)) + theme_bw()
+
+
+
+df[,exp_dev:=100*((imputed_diff2 - exp_mdl)/imputed_diff2)]
+df[,exp_prop_dev:=100*((imputed_diff2 - exp_prop_mdl)/imputed_diff2)]
+
+#### model building ARIMA
 # training set sfy 2019-2022
 arima_train <- exp[cg_year <=2022]
 
